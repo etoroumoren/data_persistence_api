@@ -1,11 +1,18 @@
 package com.apiPersistence.dataPersistenceApi.dto.external;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.UUID;
 
-public record ProfileSummaryDTO(UUID id,
-                                String name,
-                                String gender,
-                                Integer age,
-                                String ageGroup,
-                                String countryId) {
-}
+public record ProfileSummaryDTO(
+        UUID id,
+        String name,
+        String gender,
+        Integer age,
+
+        @JsonProperty("age_group")
+        String ageGroup,
+
+        @JsonProperty("country_id")
+        String countryId
+) {}

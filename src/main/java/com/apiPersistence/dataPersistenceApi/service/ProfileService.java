@@ -3,9 +3,8 @@ package com.apiPersistence.dataPersistenceApi.service;
 import com.apiPersistence.dataPersistenceApi.dto.external.AgifyResponse;
 import com.apiPersistence.dataPersistenceApi.dto.external.GenderizeResponse;
 import com.apiPersistence.dataPersistenceApi.dto.external.NationalizeResponse;
-import com.apiPersistence.dataPersistenceApi.exception.ExternalApiException;
-
 import com.apiPersistence.dataPersistenceApi.entity.Profile;
+import com.apiPersistence.dataPersistenceApi.exception.ExternalApiException;
 import com.apiPersistence.dataPersistenceApi.exception.InvalidRequestException;
 import com.apiPersistence.dataPersistenceApi.exception.ProfileNotFoundException;
 import com.apiPersistence.dataPersistenceApi.repository.ProfileRepository;
@@ -18,6 +17,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 @Service
 @RequiredArgsConstructor
@@ -31,54 +31,58 @@ public class ProfileService {
             throw new InvalidRequestException("Name is required");
         }
 
-        Optional<Profile> existing = repo.findByNameIgnoreCase(name.trim());
+        String normalizedName = name.trim().toLowerCase();
+
+        Optional<Profile> existing = repo.findByNameIgnoreCase(normalizedName);
         if (existing.isPresent()) {
             return existing.get();
         }
 
         CompletableFuture<GenderizeResponse> genderFuture =
-                CompletableFuture.supplyAsync(() -> externalApi.fetchGender(name));
+                CompletableFuture.supplyAsync(() -> externalApi.fetchGender(normalizedName));
 
         CompletableFuture<AgifyResponse> ageFuture =
-                CompletableFuture.supplyAsync(() -> externalApi.fetchAge(name));
+                CompletableFuture.supplyAsync(() -> externalApi.fetchAge(normalizedName));
 
         CompletableFuture<NationalizeResponse> nationalFuture =
-                CompletableFuture.supplyAsync(() -> externalApi.fetchNationality(name));
+                CompletableFuture.supplyAsync(() -> externalApi.fetchNationality(normalizedName));
 
-        CompletableFuture.allOf(genderFuture, ageFuture, nationalFuture).join();
+        try {
+            CompletableFuture.allOf(genderFuture, ageFuture, nationalFuture).join();
 
-        GenderizeResponse genderData = genderFuture.join();
-        AgifyResponse ageData = ageFuture.join();
-        NationalizeResponse nationalData = nationalFuture.join();
+            GenderizeResponse genderData = genderFuture.join();
+            AgifyResponse ageData = ageFuture.join();
+            NationalizeResponse nationalData = nationalFuture.join();
 
-        if (genderData.gender() == null || genderData.count() == 0) {
-            throw new ExternalApiException("Genderize");
+            if (genderData == null || genderData.gender() == null || genderData.count() == null || genderData.count() == 0) {
+                throw new ExternalApiException("Genderize");
+            }
+            if (ageData == null || ageData.age() == null) {
+                throw new ExternalApiException("Agify");
+            }
+            if (nationalData == null || nationalData.country() == null || nationalData.country().isEmpty()) {
+                throw new ExternalApiException("Nationalize");
+            }
+
+            String ageGroup = ProfileClassifier.classifyAge(ageData.age());
+            var topCountry = ProfileClassifier.topCountry(nationalData.country());
+
+            Profile profile = new Profile();
+            profile.setId(UuidCreator.getTimeOrderedEpoch());
+            profile.setName(normalizedName);
+            profile.setGender(genderData.gender());
+            profile.setGenderProbability(genderData.probability());
+            profile.setSampleSize(genderData.count());
+            profile.setAge(ageData.age());
+            profile.setAgeGroup(ageGroup);
+            profile.setCountryId(topCountry.countryId());
+            profile.setCountryProbability(topCountry.probability());
+            profile.setCreatedAt(Instant.now());
+
+            return repo.save(profile);
+        } catch (CompletionException ex) {
+            throw new ExternalApiException("External API call failed");
         }
-        if (ageData.age() == null) {
-            throw new ExternalApiException("Agify");
-        }
-        if (nationalData.country() == null || nationalData.country().isEmpty()) {
-            throw new ExternalApiException("Nationalize");
-        }
-
-        // 5. Classify
-        String ageGroup = ProfileClassifier.classifyAge(ageData.age());
-        var topCountry = ProfileClassifier.topCountry(nationalData.country());
-
-        // 6. Build and save
-        Profile profile = new Profile();
-        profile.setId(UuidCreator.getTimeOrderedEpoch());
-        profile.setName(name.trim().toLowerCase());
-        profile.setGender(genderData.gender());
-        profile.setGenderProbability(genderData.probability());
-        profile.setSampleSize(genderData.count());
-        profile.setAge(ageData.age());
-        profile.setAgeGroup(ageGroup);
-        profile.setCountryId(topCountry.countryId());
-        profile.setCountryProbability(topCountry.probability());
-        profile.setCreatedAt(Instant.now());
-
-        return repo.save(profile);
     }
 
     public Profile getById(UUID id) {
@@ -103,6 +107,6 @@ public class ProfileService {
 
     public Optional<Profile> findExisting(String name) {
         if (name == null || name.isBlank()) return Optional.empty();
-        return repo.findByNameIgnoreCase(name.trim());
+        return repo.findByNameIgnoreCase(name.trim().toLowerCase());
     }
 }
