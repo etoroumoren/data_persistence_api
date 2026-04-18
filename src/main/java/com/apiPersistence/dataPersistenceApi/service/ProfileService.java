@@ -54,6 +54,7 @@ public class ProfileService {
             AgifyResponse ageData = ageFuture.join();
             NationalizeResponse nationalData = nationalFuture.join();
 
+            // Edge-case validations from task
             if (genderData == null || genderData.gender() == null || genderData.count() == null || genderData.count() == 0) {
                 throw new ExternalApiException("Genderize");
             }
@@ -68,7 +69,7 @@ public class ProfileService {
             var topCountry = ProfileClassifier.topCountry(nationalData.country());
 
             Profile profile = new Profile();
-            profile.setId(UuidCreator.getTimeOrderedEpoch());
+            profile.setId(UuidCreator.getTimeOrderedEpoch()); // UUID v7
             profile.setName(normalizedName);
             profile.setGender(genderData.gender());
             profile.setGenderProbability(genderData.probability());
@@ -77,11 +78,20 @@ public class ProfileService {
             profile.setAgeGroup(ageGroup);
             profile.setCountryId(topCountry.countryId());
             profile.setCountryProbability(topCountry.probability());
-            profile.setCreatedAt(Instant.now());
+            profile.setCreatedAt(Instant.now()); // UTC ISO-8601 in JSON
 
             return repo.save(profile);
+
         } catch (CompletionException ex) {
-            throw new ExternalApiException("External API call failed");
+            Throwable cause = ex.getCause();
+
+            if (cause instanceof ExternalApiException apiEx) {
+                throw apiEx;
+            }
+
+            // If HTTP or parsing error happened inside async call,
+            // return a spec-compliant upstream error (502).
+            throw new ExternalApiException("Genderize");
         }
     }
 

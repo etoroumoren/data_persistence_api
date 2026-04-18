@@ -1,10 +1,8 @@
 package com.apiPersistence.dataPersistenceApi.exception;
 
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.Map;
@@ -30,15 +28,16 @@ public class GlobalExceptionHandler {
                 .body(Map.of("status", "error", "message", ex.getMessage()));
     }
 
-    @ExceptionHandler(HttpClientErrorException.TooManyRequests.class)
-    public ResponseEntity<?> handleRateLimit(HttpClientErrorException.TooManyRequests ex) {
-        return ResponseEntity.status(502)
-                .body(Map.of("status", "error", "message", "Genderize returned an invalid response"));
-    }
-
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<?> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         return ResponseEntity.status(422)
                 .body(Map.of("status", "error", "message", "Invalid type for parameter: " + ex.getName()));
+    }
+
+    // Prevent HTML Whitelabel for uncaught errors
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<?> handleGeneric(Exception ex) {
+        return ResponseEntity.status(500)
+                .body(Map.of("status", "error", "message", "Internal server error"));
     }
 }
